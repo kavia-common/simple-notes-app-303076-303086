@@ -18,20 +18,34 @@ function normalizeBaseUrl(raw) {
  *
  * Rules:
  *  - Default: return "" (empty base) meaning same-origin relative paths.
- *  - If REACT_APP_API_BASE is set AND starts with http:// or https://, use it (absolute override).
- *  - Any other value is ignored (prevents accidentally constructing hostname:port URLs).
+ *  - Allow an override via REACT_APP_API_BASE ONLY when it is an absolute URL AND is same-origin.
+ *    (Prevents accidentally constructing hostname:port URLs or cross-origin calls in preview.)
+ *  - Any other value is ignored.
  *
- * @returns {string} empty string for same-origin, or absolute base URL without trailing slash
+ * @returns {string} empty string for same-origin, or absolute same-origin base URL without trailing slash
  */
 function getBaseUrl() {
   const candidate = normalizeBaseUrl(process.env.REACT_APP_API_BASE);
 
-  if (candidate && /^(https?:)\/\//i.test(candidate)) {
-    return candidate;
-  }
+  // Default: always prefer same-origin relative calls.
+  if (!candidate) return "";
 
-  // Same-origin by default (preview-friendly).
-  return "";
+  // Only consider absolute URL overrides.
+  if (!/^(https?:)\/\//i.test(candidate)) return "";
+
+  // Enforce same-origin only (preview-safe). If it doesn't match current origin, ignore.
+  // This prevents cases like https://<host>:3001 from being used from the :3000 frontend.
+  try {
+    const resolved = new URL(candidate, window.location.origin);
+    if (resolved.origin !== window.location.origin) {
+      // eslint-disable-next-line no-console
+      console.debug("[notesApi] Ignoring REACT_APP_API_BASE due to cross-origin override:", candidate);
+      return "";
+    }
+    return resolved.toString().replace(/\/+$/, "");
+  } catch {
+    return "";
+  }
 }
 
 const BASE_URL = getBaseUrl();
@@ -64,15 +78,23 @@ function stringifyUnknownError(err) {
 function normalizeNetworkError(err) {
   const msg = stringifyUnknownError(err);
 
-  // Provide a friendlier message to the app and avoid displaying noisy URLs when using same-origin.
-  const where = BASE_URL ? `API at ${BASE_URL}` : "the server";
+  // Never surface noisy browser network errors (or absolute URLs/ports) to the UI.
+  // Keep details in console.debug only to avoid banners like:
+  //  - "Failed to fetch"
+  //  - "Network error ... :3001"
+  // eslint-disable-next-line no-console
+  console.debug("[notesApi] network error details:", { baseUrl: BASE_URL || "(same-origin)", error: err });
 
-  const friendly =
+  const isGenericNetworkFailure =
     msg.toLowerCase().includes("failed to fetch") ||
     msg.toLowerCase().includes("networkerror") ||
-    msg.toLowerCase().includes("load failed")
-      ? `Network error while contacting ${where}. Please try again.`
-      : `Network error while contacting ${where}: ${msg}`;
+    msg.toLowerCase().includes("load failed") ||
+    msg.toLowerCase().includes("connection refused") ||
+    msg.toLowerCase().includes("timeout");
+
+  const friendly = isGenericNetworkFailure
+    ? "Can’t reach the server right now. Please try again."
+    : "Request failed. Please try again.";
 
   const e = new Error(friendly);
   // @ts-ignore - attach original error for debugging

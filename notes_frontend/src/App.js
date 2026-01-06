@@ -9,7 +9,8 @@ import { NotesList } from "./components/NotesList";
 
 // PUBLIC_INTERFACE
 function App() {
-  const { notes, isLoading, error, refresh, create, update, remove, clearError } = useNotes();
+  const { notes, isLoading, showNetworkHint, dismissNetworkHint, refresh, create, update, remove } =
+    useNotes();
 
   const [selectedId, setSelectedId] = useState(null);
 
@@ -104,6 +105,19 @@ function App() {
           <button className="btn btn-primary" onClick={openCreate}>
             New note
           </button>
+
+          {showNetworkHint ? (
+            <div className="alert alert-warn" role="status" aria-live="polite" style={{ marginTop: 0 }}>
+              <div className="alert__row">
+                <span className="muted">
+                  Can’t reach the server right now. You can keep editing and try “Refresh” again.
+                </span>
+                <button className="icon-btn" onClick={dismissNetworkHint} aria-label="Dismiss hint">
+                  ✕
+                </button>
+              </div>
+            </div>
+          ) : null}
         </div>
       </header>
 
@@ -205,27 +219,6 @@ function App() {
         onCancel={() => (isDeleting ? null : setConfirmOpen(false))}
         onConfirm={handleConfirmDelete}
       />
-
-      {error ? (
-        <div className="toast" role="status" aria-live="polite">
-          <div className="toast__content">
-            <strong>Can’t reach the server</strong>
-            <span className="muted">
-              {String(error).toLowerCase().includes("failed to fetch")
-                ? "Network error while loading notes. Please try again."
-                : error}
-            </span>
-          </div>
-          <div style={{ display: "flex", gap: 8 }}>
-            <button className="icon-btn" onClick={refresh} aria-label="Retry loading notes">
-              Retry
-            </button>
-            <button className="icon-btn" onClick={clearError} aria-label="Dismiss">
-              ✕
-            </button>
-          </div>
-        </div>
-      ) : null}
 
       {deleteError ? (
         <div className="toast" role="alert" aria-live="polite">
