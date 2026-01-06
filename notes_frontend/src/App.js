@@ -63,7 +63,12 @@ function App() {
       }
       setEditorOpen(false);
     } catch (e) {
-      setEditorError(e instanceof Error ? e.message : "Failed to save note");
+      const raw = e instanceof Error ? e.message : "Failed to save note";
+      const msg =
+        typeof raw === "string" && raw.toLowerCase().includes("failed to fetch")
+          ? "Can’t reach the server right now. Please try again."
+          : raw;
+      setEditorError(msg);
     } finally {
       setIsSaving(false);
     }
