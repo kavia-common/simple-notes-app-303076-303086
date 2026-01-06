@@ -1,4 +1,9 @@
-const BASE_URL = "http://localhost:3001";
+const BASE_URL =
+  // CRA exposes only REACT_APP_* vars to the browser build.
+  // Prefer explicit API base from environment (set in notes_frontend/.env via platform env injection).
+  process.env.REACT_APP_API_BASE ||
+  process.env.REACT_APP_BACKEND_URL ||
+  "http://localhost:3001";
 
 /**
  * Normalize API errors into readable messages.
