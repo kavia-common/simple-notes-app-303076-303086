@@ -12,36 +12,33 @@ function normalizeBaseUrl(raw) {
 /**
  * Determine the API base URL to use in the browser.
  *
- * In preview environments, the frontend is commonly served behind a reverse proxy that can
- * route same-origin calls (e.g. GET /notes) to the backend service. Cross-host/port calls
- * can be blocked, so the safest default is to use same-origin relative paths.
+ * Important runtime detail:
+ * - In this environment, the React dev server (origin :3000) does NOT proxy /notes to the backend.
+ *   Same-origin requests like POST /notes therefore 404 with "Cannot POST /notes".
+ * - The backend is reachable on a different origin/port (typically :3001), and CORS is enabled there.
  *
  * Rules:
- *  - Default: return "" (empty base) meaning same-origin relative paths.
- *  - Allow an override via REACT_APP_API_BASE ONLY when it is an absolute URL AND is same-origin.
- *    (Prevents accidentally constructing hostname:port URLs or cross-origin calls in preview.)
- *  - Any other value is ignored.
+ *  - Prefer explicit REACT_APP_API_BASE if provided (absolute URL).
+ *  - Otherwise, try REACT_APP_BACKEND_URL if present (absolute URL).
+ *  - Otherwise, fall back to "" (same-origin). This can work in deployments where a reverse proxy
+ *    routes /notes to the backend, but will not work with a plain CRA dev server.
  *
- * @returns {string} empty string for same-origin, or absolute same-origin base URL without trailing slash
+ * @returns {string} empty string for same-origin, or absolute base URL without trailing slash
  */
 function getBaseUrl() {
-  const candidate = normalizeBaseUrl(process.env.REACT_APP_API_BASE);
+  const apiBase = normalizeBaseUrl(process.env.REACT_APP_API_BASE);
+  const backendUrl = normalizeBaseUrl(process.env.REACT_APP_BACKEND_URL);
 
-  // Default: always prefer same-origin relative calls.
+  const candidate = apiBase || backendUrl;
+
+  // Default: same-origin if nothing is configured.
   if (!candidate) return "";
 
-  // Only consider absolute URL overrides.
+  // Only accept absolute URL strings.
   if (!/^(https?:)\/\//i.test(candidate)) return "";
 
-  // Enforce same-origin only (preview-safe). If it doesn't match current origin, ignore.
-  // This prevents cases like https://<host>:3001 from being used from the :3000 frontend.
   try {
     const resolved = new URL(candidate, window.location.origin);
-    if (resolved.origin !== window.location.origin) {
-      // eslint-disable-next-line no-console
-      console.debug("[notesApi] Ignoring REACT_APP_API_BASE due to cross-origin override:", candidate);
-      return "";
-    }
     return resolved.toString().replace(/\/+$/, "");
   } catch {
     return "";
@@ -76,6 +73,12 @@ function stringifyUnknownError(err) {
  * @returns {Error}
  */
 function normalizeNetworkError(err) {
+  // If the error already contains a helpful message (e.g., status + detail),
+  // don't hide it behind a generic banner.
+  if (err instanceof Error) {
+    return err;
+  }
+
   const msg = stringifyUnknownError(err);
 
   // Never surface noisy browser network errors (or absolute URLs/ports) to the UI.
@@ -108,12 +111,37 @@ function normalizeNetworkError(err) {
  * @returns {Promise<never>}
  */
 async function throwApiError(res) {
+  // Prefer JSON detail, but fall back to text for cases like "Cannot POST /notes" (HTML).
   let details = "";
+  let rawText = "";
+
   try {
     const body = await res.json();
     details = body?.detail ? JSON.stringify(body.detail) : JSON.stringify(body);
   } catch {
-    // ignore non-json
+    try {
+      rawText = await res.text();
+    } catch {
+      // ignore
+    }
+  }
+
+  const maybeCannotPostNotes =
+    res.status === 404 &&
+    typeof rawText === "string" &&
+    rawText.toLowerCase().includes("cannot post /notes");
+
+  if (maybeCannotPostNotes) {
+    throw new Error(
+      "The frontend dev server received POST /notes (Cannot POST /notes). " +
+        "This usually means same-origin proxying is not configured. " +
+        "Set REACT_APP_BACKEND_URL (or REACT_APP_API_BASE) to the backend origin (e.g. https://<host>:3001)."
+    );
+  }
+
+  if (!details && rawText) {
+    // Keep it short; avoid dumping a full HTML page.
+    details = rawText.replace(/\s+/g, " ").slice(0, 200);
   }
 
   const message = `Request failed (${res.status} ${res.statusText})${details ? `: ${details}` : ""}`;
