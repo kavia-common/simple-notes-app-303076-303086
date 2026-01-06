@@ -9,7 +9,7 @@ import { NotesList } from "./components/NotesList";
 
 // PUBLIC_INTERFACE
 function App() {
-  const { notes, isLoading, error, refresh, create, update, remove } = useNotes();
+  const { notes, isLoading, error, refresh, create, update, remove, clearError } = useNotes();
 
   const [selectedId, setSelectedId] = useState(null);
 
@@ -116,16 +116,8 @@ function App() {
             </span>
           </div>
 
-          {error ? (
-            <div className="alert alert-error" role="alert">
-              <div className="alert__row">
-                <span>{error}</span>
-                <button className="btn btn-ghost btn-small" onClick={refresh}>
-                  Retry
-                </button>
-              </div>
-            </div>
-          ) : null}
+          {/* Avoid showing a prominent, generic "Failed to fetch" banner in the main UI. */}
+          {/* Network/API errors are surfaced as a small non-blocking toast instead. */}
 
           {isLoading ? (
             <div className="stack">
@@ -213,6 +205,27 @@ function App() {
         onCancel={() => (isDeleting ? null : setConfirmOpen(false))}
         onConfirm={handleConfirmDelete}
       />
+
+      {error ? (
+        <div className="toast" role="status" aria-live="polite">
+          <div className="toast__content">
+            <strong>Can’t reach the server</strong>
+            <span className="muted">
+              {String(error).toLowerCase().includes("failed to fetch")
+                ? "Network error while loading notes. Please try again."
+                : error}
+            </span>
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button className="icon-btn" onClick={refresh} aria-label="Retry loading notes">
+              Retry
+            </button>
+            <button className="icon-btn" onClick={clearError} aria-label="Dismiss">
+              ✕
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       {deleteError ? (
         <div className="toast" role="alert" aria-live="polite">

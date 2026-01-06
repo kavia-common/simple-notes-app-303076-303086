@@ -7,6 +7,7 @@ import { createNote, deleteNote, listNotes, updateNote } from "../api/notesApi";
  *  isLoading: boolean,
  *  error: string | null,
  *  refresh: () => Promise<void>,
+ *  clearError: () => void,
  *  create: (payload: import("../types/notes").NoteCreate) => Promise<import("../types/notes").NoteOut>,
  *  update: (id: number, payload: import("../types/notes").NoteUpdate) => Promise<import("../types/notes").NoteOut>,
  *  remove: (id: number) => Promise<void>,
@@ -17,6 +18,8 @@ export function useNotes() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
 
+  const clearError = useCallback(() => setError(null), []);
+
   const refresh = useCallback(async () => {
     setError(null);
     setIsLoading(true);
@@ -24,6 +27,10 @@ export function useNotes() {
       const data = await listNotes();
       setNotes(data);
     } catch (e) {
+      // Keep message, but UI will display as a small toast (not a big banner).
+      // Also log for debugging (CORS/base URL issues often manifest as "Failed to fetch").
+      // eslint-disable-next-line no-console
+      console.warn("Failed to load notes:", e);
       setError(e instanceof Error ? e.message : "Failed to load notes");
     } finally {
       setIsLoading(false);
@@ -56,7 +63,7 @@ export function useNotes() {
   }, []);
 
   return useMemo(
-    () => ({ notes, isLoading, error, refresh, create, update, remove }),
-    [notes, isLoading, error, refresh, create, update, remove]
+    () => ({ notes, isLoading, error, refresh, clearError, create, update, remove }),
+    [notes, isLoading, error, refresh, clearError, create, update, remove]
   );
 }
