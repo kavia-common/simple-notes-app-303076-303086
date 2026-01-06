@@ -1,3 +1,7 @@
+/**
+ * @param {unknown} raw
+ * @returns {string|null}
+ */
 function normalizeBaseUrl(raw) {
   if (!raw) return null;
   const trimmed = String(raw).trim();
@@ -5,23 +9,32 @@ function normalizeBaseUrl(raw) {
   return trimmed.replace(/\/+$/, "");
 }
 
-function resolveDefaultBaseUrl() {
-  // When served in KAVIA, the frontend is typically on :3000 and backend on :3001.
-  // Using window.location.hostname keeps it working across different hosts.
-  if (typeof window !== "undefined" && window.location) {
-    const hostname = window.location.hostname || "localhost";
-    const protocol = window.location.protocol || "http:";
-    return `${protocol}//${hostname}:3001`;
+/**
+ * Determine the API base URL to use in the browser.
+ *
+ * In preview environments, the frontend is commonly served behind a reverse proxy that can
+ * route same-origin calls (e.g. GET /notes) to the backend service. Cross-host/port calls
+ * can be blocked, so the safest default is to use same-origin relative paths.
+ *
+ * Rules:
+ *  - Default: return "" (empty base) meaning same-origin relative paths.
+ *  - If REACT_APP_API_BASE is set AND starts with http:// or https://, use it (absolute override).
+ *  - Any other value is ignored (prevents accidentally constructing hostname:port URLs).
+ *
+ * @returns {string} empty string for same-origin, or absolute base URL without trailing slash
+ */
+function getBaseUrl() {
+  const candidate = normalizeBaseUrl(process.env.REACT_APP_API_BASE);
+
+  if (candidate && /^(https?:)\/\//i.test(candidate)) {
+    return candidate;
   }
-  return "http://localhost:3001";
+
+  // Same-origin by default (preview-friendly).
+  return "";
 }
 
-const BASE_URL =
-  // CRA exposes only REACT_APP_* vars to the browser build.
-  // Prefer explicit API base from environment (set in notes_frontend/.env via platform env injection).
-  normalizeBaseUrl(process.env.REACT_APP_API_BASE) ||
-  normalizeBaseUrl(process.env.REACT_APP_BACKEND_URL) ||
-  resolveDefaultBaseUrl();
+const BASE_URL = getBaseUrl();
 
 /**
  * Convert unknown thrown values to a readable message.
@@ -50,13 +63,16 @@ function stringifyUnknownError(err) {
  */
 function normalizeNetworkError(err) {
   const msg = stringifyUnknownError(err);
-  // Keep the original for debugging, but provide a friendlier message to the app.
+
+  // Provide a friendlier message to the app and avoid displaying noisy URLs when using same-origin.
+  const where = BASE_URL ? `API at ${BASE_URL}` : "the server";
+
   const friendly =
     msg.toLowerCase().includes("failed to fetch") ||
     msg.toLowerCase().includes("networkerror") ||
     msg.toLowerCase().includes("load failed")
-      ? `Network error contacting API at ${BASE_URL}. Please ensure the backend is running and reachable.`
-      : `Network error contacting API at ${BASE_URL}: ${msg}`;
+      ? `Network error while contacting ${where}. Please try again.`
+      : `Network error while contacting ${where}: ${msg}`;
 
   const e = new Error(friendly);
   // @ts-ignore - attach original error for debugging
@@ -114,8 +130,7 @@ async function request(path, options = {}) {
       "Content-Type": "application/json",
       ...(options.headers || {}),
     },
-    // CORS mode is default for cross-origin, but we set explicitly for clarity.
-    mode: "cors",
+    // Don't force mode:"cors" — for same-origin requests we want default behavior.
     ...options,
   };
 
